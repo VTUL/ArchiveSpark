@@ -73,28 +73,28 @@ object Benchmarking {
 
   def archiveSpark(implicit sc: SparkContext) = ArchiveSpark.hdfs(s"$cdxPath/*.cdx", warcPath)
 
-  def warcBase(implicit sc: SparkContext) = WarcBase.loadWarc(s"$warcPath/*.warc.gz").coalesce(ArchiveSpark.partitions)
+  def warcBase(implicit sc: SparkContext) = WarcBase.loadWarc(s"$warcPath/*.warc.gz").coalesce(ArchiveSpark.partitions(sc))
 
-  def hbase(conf: Configuration => Unit)(implicit sc: SparkContext) = WarcBase.flatVersions(WarcBase.hbase(hbaseTable) { c => conf(c) }.repartition(ArchiveSpark.partitions))
+  def hbase(conf: Configuration => Unit)(implicit sc: SparkContext) = WarcBase.flatVersions(WarcBase.hbase(hbaseTable) { c => conf(c) }.repartition(ArchiveSpark.partitions(sc)))
 
   def rowKey(url: String) = Option(UrlUtils.urlToKey(url)).getOrElse(url)
 
-  def benchmarkArchiveSpark(name: String)(rdd: => RDD[ResolvedArchiveRecord])(implicit sc: SparkContext, logger: BenchmarkLogger) = {
+  def benchmarkArchiveSpark(name: String)(rdd: => RDD[de.l3s.archivespark.specific.warc.WarcRecord])(implicit sc: SparkContext, logger: BenchmarkLogger) = {
     Benchmark.time(name, archiveSparkId, times) {
-      val contentLength = rdd.mapEnrich[String, Int](StringContent, "length") { content => content.length }
+      val contentLength = rdd.enrich(StringContent).mapEnrich[String, Int]("payload.string", "length") { content => content.length }
       contentLength.filterExists("payload.string.length").map(r => r.get[Int]("payload.string.length").get).sum()
     }.log(logValues)
   }
 
   def benchmarkSpark(name: String)(rdd: => RDD[WarcRecord])(implicit sc: SparkContext, logger: BenchmarkLogger) = {
     Benchmark.time(name, sparkId, times) {
-      rdd.map(r => new HttpResponse(r.getContentBytes).stringContent.length).sum()
+      rdd.map(r => HttpResponse(r.getContentBytes).payload.length).sum()
     }.log(logValues)
   }
 
   def benchmarkHbase(name: String)(rdd: => RDD[RawArchiveRecord])(implicit sc: SparkContext, logger: BenchmarkLogger) = {
     Benchmark.time(name, hbaseId, times) {
-      rdd.map(r => r.stringContent.length).sum()
+      rdd.map(r => r.payload.length).sum()
     }.log(logValues)
   }
 
@@ -158,15 +158,15 @@ object Benchmarking {
     benchmarkArchiveSpark(name) {
       archiveSpark
         .filter(r => r.status == 200 && r.time.getYear == year && r.time.getMonthOfYear == month)
-        .map(r => (r.surtUrl, r)).reduceByKey((r1, r2) => if (r1.time.compareTo(r2.time) > 0) r1 else r2, ArchiveSpark.partitions)
+        .map(r => (r.surtUrl, r)).reduceByKey((r1, r2) => if (r1.time.compareTo(r2.time) > 0) r1 else r2, ArchiveSpark.partitions(sc))
         .values
     }
 
     benchmarkSpark(name) {
       warcBase
-        .filter{r => new HttpResponse(r.getContentBytes).status == 200 && r.getCrawldate.startsWith(s"$year$month")}
+        .filter{r => HttpResponse(r.getContentBytes).statusLine == "200" && r.getCrawldate.startsWith(s"$year$month")}
         .map(r => (r.getUrl, r))
-        .reduceByKey({(r1, r2) => if (r1.getCrawldate.toInt > r2.getCrawldate.toInt) r1 else r2}, ArchiveSpark.partitions)
+        .reduceByKey({(r1, r2) => if (r1.getCrawldate.toInt > r2.getCrawldate.toInt) r1 else r2}, ArchiveSpark.partitions(sc))
         .values
     }
 
@@ -174,9 +174,9 @@ object Benchmarking {
       hbase { c =>
         c.setLong(TableInputFormat.SCAN_TIMERANGE_END, startDate.getTime)
         c.setLong(TableInputFormat.SCAN_TIMERANGE_START, stopDate.getTime)
-      }.filter{case (time, url, mime, record) => record.httpResponse.status == 200}
+      }.filter{case (time, url, mime, record) => record.httpResponse.statusLine == "200"}
         .map{case (time, url, mime, record) => (url, (time, record))}
-        .reduceByKey((tr1, tr2) => if (tr1._1 > tr2._1) tr1 else tr2, ArchiveSpark.partitions)
+        .reduceByKey((tr1, tr2) => if (tr1._1 > tr2._1) tr1 else tr2, ArchiveSpark.partitions(sc))
         .map{case (url, tr) => tr._2}
     }
   }
@@ -195,7 +195,7 @@ object Benchmarking {
 
     benchmarkSpark(name) {
       warcBase
-        .filter(r => r.getMimeType == "text/html" && r.getDomain.matches(s"(^|.*\\.)${domain + "$"}") && HttpResponse(r.getContentBytes).status == 200)
+        .filter(r => r.getMimeType == "text/html" && r.getDomain.matches(s"(^|.*\\.)${domain + "$"}") && HttpResponse(r.getContentBytes).statusLine == "200")
     }
 
     benchmarkHbase(name) {
@@ -203,7 +203,7 @@ object Benchmarking {
         c.set(TableInputFormat.SCAN_COLUMNS, "c:text/html")
         c.set(TableInputFormat.SCAN_ROW_START, reverse)
         c.set(TableInputFormat.SCAN_ROW_STOP, next)
-      }.filter{case (time, url, mime, record) => url.matches(s"^$reverse[\\.\\/].*") && record.httpResponse.status == 200}
+      }.filter{case (time, url, mime, record) => url.matches(s"^$reverse[\\.\\/].*") && record.httpResponse.statusLine == "200"}
         .map{case (timestamp, url, mime, record) => record}
     }
   }

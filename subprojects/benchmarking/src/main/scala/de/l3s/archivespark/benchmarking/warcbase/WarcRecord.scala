@@ -29,7 +29,7 @@ import java.text.SimpleDateFormat
 import org.archive.util.ArchiveUtils
 import org.warcbase.data.WarcRecordUtils
 import org.warcbase.io.WarcRecordWritable
-import org.warcbase.spark.matchbox.ExtractTopLevelDomain
+import org.warcbase.spark.matchbox.ExtractDomain
 
 /*
 compare https://github.com/lintool/warcbase/blob/master/src/main/scala/org/warcbase/spark/archive/io/WarcRecord.scala
@@ -53,5 +53,5 @@ class WarcRecord(r: WarcRecordWritable) {
 
   val getUrl = r.getRecord.getHeader.getUrl
 
-  def getDomain = ExtractTopLevelDomain(getUrl)
+  def getDomain = ExtractDomain(getUrl)
 }

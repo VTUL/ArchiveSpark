@@ -22,9 +22,11 @@
  * SOFTWARE.
  */
 
-package de1.l3s.archivesparkb.benchmarking
+package de.l3s.archivespark.benchmarking
 
 import scala.math._
+
+case class BenchmarkMeasure[T](value: T, seconds: Double)
 
 object Benchmark {
   var retries = 0
@@ -50,7 +52,7 @@ object Benchmark {
 
   def time[R](name: String, id: String, times: Int)(action: => R): BenchmarkResult[R] = {
     var results = Seq(time(name, id)(action))
-    for (i <- 1 to (times - 1)) results :+= time(name, id)(action)
+    for (i <- 1 until times) results :+= time(name, id)(action)
     BenchmarkResult(name, id, results.flatMap(r => r.measures))
   }
 }

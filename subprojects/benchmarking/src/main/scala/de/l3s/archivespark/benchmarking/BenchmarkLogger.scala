@@ -27,7 +27,7 @@ package de.l3s.archivespark.benchmarking
 import java.io.{FileOutputStream, PrintStream}
 
 class BenchmarkLogger(val filename: String) {
-  private var lastName: String = null
+  private var lastName: String = _
 
   def log[T](result: BenchmarkResult[T], logValues: Boolean = false): T = {
     val stream = new FileOutputStream(filename, true)

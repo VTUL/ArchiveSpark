@@ -26,7 +26,7 @@ package de.l3s.archivespark.benchmarking.warcbase
 
 import java.io.ByteArrayInputStream
 
-import de.l3s.archivespark.utils.HttpArchiveRecord
+import de.l3s.archivespark.specific.warc.RawArchiveRecord
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.hbase.CellUtil
 import org.apache.hadoop.hbase.client.Result
@@ -35,7 +35,6 @@ import org.apache.hadoop.hbase.util.Bytes
 import org.apache.hadoop.io.LongWritable
 import org.apache.spark.SparkContext
 import org.apache.spark.rdd.RDD
-import org.archive.io.ArchiveReaderFactory
 import org.warcbase.io.WarcRecordWritable
 import org.warcbase.mapreduce.WacWarcInputFormat
 import scala.collection.JavaConverters._
@@ -59,8 +58,7 @@ object WarcBase {
 
         val warcPath = "[^\\ ]+\\.[w]?arc(\\.gz)?".r.findFirstIn(value).get
         val warcId = if (warcPath.endsWith(".gz")) warcPath.substring(0, warcPath.length - 3) else warcPath
-        val reader = ArchiveReaderFactory.get(warcId, new ByteArrayInputStream(valueBytes), false)
-        (cell.getTimestamp, url, mime, HttpArchiveRecord(reader.get))
+        (cell.getTimestamp, url, mime, RawArchiveRecord(warcId, new ByteArrayInputStream(valueBytes)))
       }
     }
   }
