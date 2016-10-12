@@ -26,8 +26,6 @@ package de.l3s.archivespark.benchmarking
 
 import scala.math._
 
-case class BenchmarkMeasure[T](value: T, seconds: Double)
-
 object Benchmark {
   var retries = 0
 

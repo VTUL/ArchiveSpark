@@ -24,6 +24,8 @@
 
 package de.l3s.archivespark.benchmarking
 
+case class BenchmarkMeasure[T](value: T, seconds: Double)
+
 case class BenchmarkResult[T](name: String, id: String, measures: Seq[BenchmarkMeasure[T]]) {
   def log(logValues: Boolean = false)(implicit logger: BenchmarkLogger): T = log(logger, logValues)
   def log(logger: BenchmarkLogger, logValues: Boolean): T = logger.log(this, logValues)

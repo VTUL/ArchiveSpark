@@ -31,6 +31,8 @@ import de.l3s.archivespark.implicits._
 import de.l3s.archivespark.ArchiveSpark
 import de.l3s.archivespark.benchmarking.{Benchmark, BenchmarkLogger}
 import de.l3s.archivespark.benchmarking.warcbase.{WarcBase, WarcRecord}
+import de.l3s.archivespark.enrich.EnrichRoot
+import de.l3s.archivespark.enrich.dataloads.ByteContentLoad
 import de.l3s.archivespark.http.HttpResponse
 import de.l3s.archivespark.specific.warc.RawArchiveRecord
 import org.apache.hadoop.conf.Configuration
@@ -81,8 +83,8 @@ object Benchmarking {
 
   def benchmarkArchiveSpark(name: String)(rdd: => RDD[de.l3s.archivespark.specific.warc.WarcRecord])(implicit sc: SparkContext, logger: BenchmarkLogger) = {
     Benchmark.time(name, archiveSparkId, times) {
-      val contentLength = rdd.enrich(StringContent).mapEnrich[String, Int]("payload.string", "length") { content => content.length }
-      contentLength.filterExists("payload.string.length").map(r => r.get[Int]("payload.string.length").get).sum()
+      val contentLength = rdd.mapEnrich[EnrichRoot with ByteContentLoad, String, Int](StringContent, "length") { content => content.length }
+      contentLength.filter(r => r("payload.string.length").isDefined).map(r => r.get[Int]("payload.string.length").get).sum()
     }.log(logValues)
   }
 
@@ -172,8 +174,8 @@ object Benchmarking {
 
     benchmarkHbase(name) {
       hbase { c =>
-        c.setLong(TableInputFormat.SCAN_TIMERANGE_END, startDate.getTime)
-        c.setLong(TableInputFormat.SCAN_TIMERANGE_START, stopDate.getTime)
+        c.setLong(TableInputFormat.SCAN_TIMERANGE_START, startDate.getTime)
+        c.setLong(TableInputFormat.SCAN_TIMERANGE_END, stopDate.getTime)
       }.filter{case (time, url, mime, record) => record.httpResponse.statusLine == "200"}
         .map{case (time, url, mime, record) => (url, (time, record))}
         .reduceByKey((tr1, tr2) => if (tr1._1 > tr2._1) tr1 else tr2, ArchiveSpark.partitions(sc))
