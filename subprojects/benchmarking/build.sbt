@@ -17,11 +17,9 @@ lazy val archivesparkBenchmarking = (project in file(".")).
         ExclusionRule(organization = "org.scala-lang"),
         ExclusionRule(organization = "com.google.guava")),
       "org.apache.hadoop" % "hadoop-client" % "2.5.0" % "provided",
-      "org.apache.hbase" % "hbase" % "1.2.0" % "provided",
-      "org.apache.hbase" % "hbase-common" % "1.2.0" % "provided",
-      "org.apache.hbase" % "hbase-client" % "1.2.0" % "provided",
-      "org.apache.hbase" % "hbase-server" % "1.2.0" % "provided",
-      "org.apache.hbase" % "hbase-protocol" % "1.2.0" % "provided"
+      "org.apache.hbase" % "hbase-shaded" % "1.2.0",
+      "org.apache.hbase" % "hbase-shaded-client" % "1.2.0",
+      "org.apache.hbase" % "hbase-shaded-server" % "1.2.0"
     )
   )
 
