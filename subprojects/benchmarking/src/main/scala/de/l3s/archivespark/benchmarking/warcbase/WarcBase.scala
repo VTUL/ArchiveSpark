@@ -42,7 +42,6 @@ import scala.collection.JavaConverters._
 object WarcBase {
   def hbase(table: String)(conf: Configuration => Unit)(implicit sc: SparkContext) = {
     HBase.rdd(table) { c =>
-      c.set(TableInputFormat.SCAN_COLUMN_FAMILY, "c"); // content family of WarcBase
       c.setInt(TableInputFormat.SCAN_MAXVERSIONS, Int.MaxValue); // get all versions
       conf(c)
     }
