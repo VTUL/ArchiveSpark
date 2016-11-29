@@ -39,6 +39,8 @@ object HBase {
     if (sys.env.contains("HBASE_CONF_DIR")) {
       hbaseConf.addResource(new Path(sys.env("HBASE_CONF_DIR"), "core-site.xml"))
       hbaseConf.addResource(new Path(sys.env("HBASE_CONF_DIR"), "hbase-site.xml"))
+    } else {
+      println("!!! WARNING: For distributed/yarn mode HBASE_CONF_DIR environment variable must be set on all Spark nodes !!!")
     }
     hbaseConf.set(TableInputFormat.INPUT_TABLE, table)
     conf(hbaseConf)
