@@ -40,6 +40,9 @@ import org.apache.spark.rdd.RDD
 import org.warcbase.data.UrlUtils
 
 object Benchmarking {
+  type BenchmarkingWarcRecord = de.l3s.archivespark.benchmarking.warcbase.WarcRecord
+  type ArchiveSparkWarcRecord = de.l3s.archivespark.specific.warc.WarcRecord
+
   val times = 1
   val retries = 1
   val logFile = "benchmarks.txt"
@@ -50,7 +53,7 @@ object Benchmarking {
   val archiveSparkId = "ArchiveSpark"
 
   val warcPath = "warc/wide"
-  val cdxPath = warcPath
+  val cdxPath: String = warcPath
   val hbaseTable = "wide"
 
   def main(args: Array[String]): Unit = {
@@ -73,34 +76,34 @@ object Benchmarking {
     runPagesWithScripts
   }
 
-  def archiveSpark(implicit sc: SparkContext) = ArchiveSpark.hdfs(s"$cdxPath/*.cdx", warcPath)
+  def archiveSpark(implicit sc: SparkContext): RDD[ArchiveSparkWarcRecord] = ArchiveSpark.hdfs(s"$cdxPath/*.cdx", warcPath)
 
-  def warcBase(implicit sc: SparkContext) = WarcBase.loadWarc(s"$warcPath/*.warc.gz").coalesce(ArchiveSpark.partitions(sc))
+  def warcBase(implicit sc: SparkContext): RDD[BenchmarkingWarcRecord] = WarcBase.loadWarc(s"$warcPath/*.warc.gz").coalesce(ArchiveSpark.partitions(sc))
 
-  def hbase(conf: Configuration => Unit)(implicit sc: SparkContext) = WarcBase.flatVersions(WarcBase.hbase(hbaseTable) { c => conf(c) }.repartition(ArchiveSpark.partitions(sc)))
+  def hbase(conf: Configuration => Unit)(implicit sc: SparkContext): RDD[(Long, String, String, RawArchiveRecord)] = WarcBase.flatVersions(WarcBase.hbase(hbaseTable) { c => conf(c) }.repartition(ArchiveSpark.partitions(sc)))
 
-  def rowKey(url: String) = Option(UrlUtils.urlToKey(url)).getOrElse(url)
+  def rowKey(url: String): String = Option(UrlUtils.urlToKey(url)).getOrElse(url)
 
-  def benchmarkArchiveSpark(name: String)(rdd: => RDD[de.l3s.archivespark.specific.warc.WarcRecord])(implicit sc: SparkContext, logger: BenchmarkLogger) = {
+  def benchmarkArchiveSpark(name: String)(rdd: => RDD[ArchiveSparkWarcRecord])(implicit sc: SparkContext, logger: BenchmarkLogger): (Long, Double) = {
     Benchmark.time(name, archiveSparkId, times) {
       val contentLength = rdd.mapEnrich(StringContent, "length") { content => content.length }
       (rdd.count, contentLength.filter(r => r("payload.string.length").isDefined).map(r => r.get[Int]("payload.string.length").get).sum)
     }.log(logValues)
   }
 
-  def benchmarkSpark(name: String)(rdd: => RDD[WarcRecord])(implicit sc: SparkContext, logger: BenchmarkLogger) = {
+  def benchmarkSpark(name: String)(rdd: => RDD[BenchmarkingWarcRecord])(implicit sc: SparkContext, logger: BenchmarkLogger): (Long, Double) = {
     Benchmark.time(name, sparkId, times) {
       (rdd.count, rdd.map(r => r.getContentString.length).sum)
     }.log(logValues)
   }
 
-  def benchmarkHbase(name: String)(rdd: => RDD[RawArchiveRecord])(implicit sc: SparkContext, logger: BenchmarkLogger) = {
+  def benchmarkHbase(name: String)(rdd: => RDD[RawArchiveRecord])(implicit sc: SparkContext, logger: BenchmarkLogger): (Long, Double) = {
     Benchmark.time(name, hbaseId, times) {
       (rdd.count, rdd.map(r => new String(r.httpResponse.payload).length).sum)
     }.log(logValues)
   }
 
-  def runOneUrl(implicit sc: SparkContext, logger: BenchmarkLogger) = {
+  def runOneUrl(implicit sc: SparkContext, logger: BenchmarkLogger): Unit = {
     val name = "one url"
     val url = "http://www.theliberatorfiles.com/religious-liberty/"
 
@@ -116,11 +119,11 @@ object Benchmarking {
       hbase { c =>
         c.set(TableInputFormat.SCAN_ROW_START, rowKey(url))
         c.set(TableInputFormat.SCAN_ROW_STOP, rowKey(url))
-      }.map{case (timestamp, url, mime, record) => record}
+      }.map{case (_, _, _, record) => record}
     }
   }
 
-  def runOneDomain(implicit sc: SparkContext, logger: BenchmarkLogger) = {
+  def runOneDomain(implicit sc: SparkContext, logger: BenchmarkLogger): Unit = {
     val name = "one domain (text/html)"
     val domain = "wikimapia.org"
     val reverse = domain.split("\\.").reverse.mkString(".")
@@ -141,12 +144,12 @@ object Benchmarking {
         c.set(TableInputFormat.SCAN_COLUMNS, "c:text/html")
         c.set(TableInputFormat.SCAN_ROW_START, reverse)
         c.set(TableInputFormat.SCAN_ROW_STOP, next)
-      }.filter{case (time, url, mime, record) => url.matches(s"^$reverse[\\.\\/].*")}
-        .map{case (timestamp, url, mime, record) => record}
+      }.filter{case (_, url, _, _) => url.matches(s"^$reverse[\\.\\/].*")}
+        .map{case (_, _, _, record) => record}
     }
   }
 
-  def runOneMonthLatestOnline(implicit sc: SparkContext, logger: BenchmarkLogger) = {
+  def runOneMonthLatestOnline(implicit sc: SparkContext, logger: BenchmarkLogger): Unit = {
     val name = "one month latest online"
     val year = 2011
     val month = 2
@@ -176,14 +179,14 @@ object Benchmarking {
       hbase { c =>
         c.setLong(TableInputFormat.SCAN_TIMERANGE_START, startDate.getTime)
         c.setLong(TableInputFormat.SCAN_TIMERANGE_END, stopDate.getTime)
-      }.filter{case (time, url, mime, record) => record.httpResponse.statusLine.contains(" 200 ")}
-        .map{case (time, url, mime, record) => (url, (time, record))}
+      }.filter{case (_, _, _, record) => record.httpResponse.statusLine.contains(" 200 ")}
+        .map{case (time, url, _, record) => (url, (time, record))}
         .reduceByKey((tr1, tr2) => if (tr1._1 > tr2._1) tr1 else tr2, ArchiveSpark.partitions(sc))
-        .map{case (url, tr) => tr._2}
+        .map{case (_, tr) => tr._2}
     }
   }
 
-  def runOneDomainOnline(implicit sc: SparkContext, logger: BenchmarkLogger) = {
+  def runOneDomainOnline(implicit sc: SparkContext, logger: BenchmarkLogger): Unit = {
     val name = "one domain (text/html) online"
     val domain = "wikimapia.org"
     val reverse = domain.split("\\.").reverse.mkString(".")
@@ -204,12 +207,12 @@ object Benchmarking {
         c.set(TableInputFormat.SCAN_COLUMNS, "c:text/html")
         c.set(TableInputFormat.SCAN_ROW_START, reverse)
         c.set(TableInputFormat.SCAN_ROW_STOP, next)
-      }.filter{case (time, url, mime, record) => url.matches(s"^$reverse[\\.\\/].*") && record.httpResponse.statusLine.contains(" 200 ")}
-        .map{case (timestamp, url, mime, record) => record}
+      }.filter{case (_, url, _, record) => url.matches(s"^$reverse[\\.\\/].*") && record.httpResponse.statusLine.contains(" 200 ")}
+        .map{case (_, _, _, record) => record}
     }
   }
 
-  def runTenMostCommonDomains(implicit sc: SparkContext, logger: BenchmarkLogger) = {
+  def runTenMostCommonDomains(implicit sc: SparkContext, logger: BenchmarkLogger): Unit = {
     val name = "top 10 domains"
     val domainRegex = """^(?:https?:\/\/)?(?:[^@\/\n]+@)?(?:www\.)?([^:\/\n]+)""".r
 
@@ -220,7 +223,7 @@ object Benchmarking {
         .sortBy(_._2.size, ascending = false)
         .zipWithIndex
         .filter(t => t._2 < 10)
-        .map { case (t, l) => t._2 }
+        .map { case (t, _) => t._2 }
         .flatMap(identity)
     }
 
@@ -232,23 +235,23 @@ object Benchmarking {
         .sortBy(_._2.size, ascending = false)
         .zipWithIndex
         .filter(t => t._2 < 10)
-        .map { case (t, l) => t._2 }
+        .map { case (t, _) => t._2 }
         .flatMap(identity)
     }
 
     benchmarkHbase(name) {
-      hbase { c => }
-        .map{case (time, url, mime, record) => (domainRegex.findFirstMatchIn(UrlUtils.reverseHostname(url)).map(_ group 1), record)}
+      hbase { _ => }
+        .map{case (_, url, _, record) => (domainRegex.findFirstMatchIn(UrlUtils.reverseHostname(url)).map(_ group 1), record)}
         .groupByKey(ArchiveSpark.partitions(sc))
         .sortBy(_._2.size, ascending = false)
         .zipWithIndex
         .filter(t => t._2 < 10)
-        .map { case (t, l) => t._2 }
+        .map { case (t, _) => t._2 }
         .flatMap(identity)
     }
   }
 
-  def runPagesWithScripts(implicit sc: SparkContext, logger: BenchmarkLogger) = {
+  def runPagesWithScripts(implicit sc: SparkContext, logger: BenchmarkLogger): Unit = {
     val name = "script pages"
 
     benchmarkArchiveSpark(name) {
@@ -273,8 +276,8 @@ object Benchmarking {
     benchmarkHbase(name) {
       hbase { c =>
         c.set(TableInputFormat.SCAN_COLUMNS, "c:text/html")
-      }.filter {case (time, url, mime, record) => new String(record.payload).matches(s"(?is).*<script.*>.*") }
-        .map {case (timestamp, url, mime, record) => record}
+      }.filter {case (_, _, _, record) => new String(record.payload).matches(s"(?is).*<script.*>.*") }
+        .map {case (_, _, _, record) => record}
     }
   }
  }
